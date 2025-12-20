@@ -4,8 +4,12 @@
 const express = require('express');
 const QRCode = require('qrcode');
 const Item = require('../models/Item');
+const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
+
+// Apply authentication middleware to all routes
+router.use(authMiddleware);
 
 // Helper: generate QR code that encodes the item ID
 async function generateQrForItemId(itemId) {
@@ -29,6 +33,7 @@ router.post('/', async (req, res) => {
       category,
       quantity,
       location,
+      userId: req.userId, // Associate item with logged-in user
     });
 
     // First save to get the Mongo _id
@@ -48,10 +53,10 @@ router.post('/', async (req, res) => {
 });
 
 // GET /api/items
-// Get all items
+// Get all items for the logged-in user
 router.get('/', async (req, res) => {
   try {
-    const items = await Item.find().sort({ createdAt: -1 });
+    const items = await Item.find({ userId: req.userId }).sort({ createdAt: -1 });
     return res.json(items);
   } catch (err) {
     console.error('Error fetching items:', err.message);
@@ -60,10 +65,10 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/items/:id
-// Get a single item by ID
+// Get a single item by ID (only if it belongs to the user)
 router.get('/:id', async (req, res) => {
   try {
-    const item = await Item.findById(req.params.id);
+    const item = await Item.findOne({ _id: req.params.id, userId: req.userId });
     if (!item) {
       return res.status(404).json({ message: 'Item not found.' });
     }
@@ -75,7 +80,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // PATCH /api/items/:id/quantity
-// Update stock quantity (increase or decrease)
+// Update stock quantity (only for user's own items)
 router.patch('/:id/quantity', async (req, res) => {
   try {
     const { delta } = req.body; // positive or negative number
@@ -84,7 +89,7 @@ router.patch('/:id/quantity', async (req, res) => {
       return res.status(400).json({ message: 'delta (number) is required.' });
     }
 
-    const item = await Item.findById(req.params.id);
+    const item = await Item.findOne({ _id: req.params.id, userId: req.userId });
     if (!item) {
       return res.status(404).json({ message: 'Item not found.' });
     }

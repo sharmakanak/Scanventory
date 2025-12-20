@@ -17,8 +17,12 @@ app.use(morgan('dev'));
 
 // Import routes
 const itemRoutes = require('./src/routes/itemRoutes');
+const authRoutes = require('./src/routes/authRoutes');
+const contactRoutes = require('./src/routes/contactRoutes');
 
 app.use('/api/items', itemRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/contact', contactRoutes);
 
 // Health check
 app.get('/', (req, res) => {

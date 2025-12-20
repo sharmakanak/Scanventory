@@ -30,6 +30,11 @@ const itemSchema = new mongoose.Schema(
       // We will store a data URL string of the generated QR code image
       type: String,
     },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
   },
   {
     timestamps: true,
