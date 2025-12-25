@@ -9,8 +9,7 @@ const User = require('../models/User');
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
-// POST /api/auth/signup
-// Create a new user account
+// POST signup route
 router.post('/signup', async (req, res) => {
     try {
         const { name, email, password } = req.body;
@@ -20,7 +19,7 @@ router.post('/signup', async (req, res) => {
             return res.status(400).json({ message: 'All fields are required.' });
         }
 
-        // Check if user already exists
+        // Checking if the user already exists
         const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
             return res.status(400).json({ message: 'Email already registered.' });
@@ -61,8 +60,7 @@ router.post('/signup', async (req, res) => {
     }
 });
 
-// POST /api/auth/login
-// Authenticate user credentials
+// POST login route
 router.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;

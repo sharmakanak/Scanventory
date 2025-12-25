@@ -33,8 +33,7 @@ app.get('/', (req, res) => {
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/qr_inventory';
 const PORT = process.env.PORT || 5000;
 
-// With Mongoose 9+, the legacy options like useNewUrlParser/useUnifiedTopology
-// are no longer needed or supported. Just pass the URI.
+
 mongoose
   .connect(MONGO_URI)
   .then(() => {

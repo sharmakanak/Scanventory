@@ -1,5 +1,4 @@
 // REST API routes for contact form
-// Handles contact form submissions
 
 const express = require('express');
 const Contact = require('../models/Contact');

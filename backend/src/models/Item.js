@@ -1,5 +1,4 @@
 // Mongoose model for inventory items
-// Each item will have a QR code that encodes the MongoDB _id
 
 const mongoose = require('mongoose');
 
@@ -27,7 +26,6 @@ const itemSchema = new mongoose.Schema(
       trim: true,
     },
     qrCode: {
-      // We will store a data URL string of the generated QR code image
       type: String,
     },
     userId: {

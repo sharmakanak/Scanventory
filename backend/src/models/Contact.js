@@ -1,5 +1,4 @@
-// Mongoose model for contact form submissions
-// Stores messages from users via the contact form
+// Mongoose model for contact database
 
 const mongoose = require('mongoose');
 

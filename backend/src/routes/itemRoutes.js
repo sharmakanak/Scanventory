@@ -11,7 +11,7 @@ const router = express.Router();
 // Apply authentication middleware to all routes
 router.use(authMiddleware);
 
-// Helper: generate QR code that encodes the item ID
+// Generating QR code that encodes the item ID
 async function generateQrForItemId(itemId) {
   // For simplicity, we just encode the raw MongoDB ID as a string
   const textToEncode = String(itemId);
