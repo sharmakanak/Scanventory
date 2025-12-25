@@ -3,7 +3,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const morgan = require('morgan');
 const dotenv = require('dotenv');
 
 dotenv.config();
@@ -13,7 +12,6 @@ const app = express();
 // Basic middleware
 app.use(cors());
 app.use(express.json());
-app.use(morgan('dev'));
 
 // Import routes
 const itemRoutes = require('./src/routes/itemRoutes');
