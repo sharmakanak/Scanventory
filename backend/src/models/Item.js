@@ -25,6 +25,22 @@ const itemSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    // Optional enrichment fields
+    description: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    sku: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    unitPrice: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
     qrCode: {
       type: String,
     },
@@ -40,5 +56,3 @@ const itemSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model('Item', itemSchema);
-
-

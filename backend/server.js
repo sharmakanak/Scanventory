@@ -17,10 +17,12 @@ app.use(express.json());
 const itemRoutes = require('./src/routes/itemRoutes');
 const authRoutes = require('./src/routes/authRoutes');
 const contactRoutes = require('./src/routes/contactRoutes');
+const profileRoutes = require('./src/routes/profileRoutes');
 
 app.use('/api/items', itemRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/contact', contactRoutes);
+app.use('/api/profile', profileRoutes);
 
 // Health check
 app.get('/', (req, res) => {

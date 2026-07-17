@@ -1,158 +1,107 @@
-import { Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-
-const API_BASE = 'http://localhost:5000/api';
+import { Link, useNavigate } from 'react-router-dom';
+import { Mail, Lock, LogIn, ArrowRight } from 'lucide-react';
+import { API_BASE } from '../config';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { Card, CardHeader } from '../components/ui/Card';
 
 function Login() {
-    const navigate = useNavigate();
-    const [form, setForm] = useState({
-        email: '',
-        password: '',
-    });
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
-    const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
 
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setForm((prev) => ({
-            ...prev,
-            [name]: value,
-        }));
-    };
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setError('');
-        setSuccess('');
-        setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      const data = await res.json();
+      
+      if (!res.ok) throw new Error(data.error || 'Login failed');
 
-        try {
-            const res = await fetch(`${API_BASE}/auth/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(form),
-            });
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.message || 'Login failed');
-            }
-
-            setSuccess(`Welcome back, ${data.user.name}!`);
-            setForm({ email: '', password: '' });
-
-            // Store JWT token in localStorage
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('user', JSON.stringify(data.user));
-
-            // Redirect to home page after 1.5 seconds
-            setTimeout(() => {
-                navigate('/');
-            }, 1500);
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/40 to-purple-50/30 flex items-center justify-center px-4 py-12">
-            <div className="w-full max-w-md">
-                {/* Card */}
-                <div className="bg-white/80 backdrop-blur-sm rounded-3xl p-8 shadow-2xl border-2 border-slate-200/50">
-                    {/* Header */}
-                    <div className="flex items-center gap-4 mb-8">
-                        <div className="bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-600 rounded-2xl p-3 shadow-lg">
-                            <span className="text-3xl">🔐</span>
-                        </div>
-                        <div>
-                            <h1 className="text-3xl font-extrabold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-                                Welcome Back
-                            </h1>
-                            <p className="text-sm text-slate-500 font-medium mt-1">
-                                Log in to your account
-                            </p>
-                        </div>
-                    </div>
-
-                    {/* Error Alert */}
-                    {error && (
-                        <div className="mb-6 rounded-xl border-2 border-red-300 bg-gradient-to-r from-red-50 to-rose-50 px-4 py-3 text-sm text-red-800 shadow-lg flex items-center gap-3">
-                            <span className="text-xl">❌</span>
-                            <span className="font-semibold">{error}</span>
-                        </div>
-                    )}
-
-                    {/* Success Alert */}
-                    {success && (
-                        <div className="mb-6 rounded-xl border-2 border-green-300 bg-gradient-to-r from-green-50 to-emerald-50 px-4 py-3 text-sm text-green-800 shadow-lg flex items-center gap-3">
-                            <span className="text-xl">✅</span>
-                            <span className="font-semibold">{success}</span>
-                        </div>
-                    )}
-
-                    {/* Form */}
-                    <form className="space-y-5" onSubmit={handleSubmit}>
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                Email Address <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="email"
-                                name="email"
-                                value={form.email}
-                                onChange={handleChange}
-                                className="w-full rounded-lg border-2 border-slate-300 px-4 py-3 text-sm transition-all duration-200 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 hover:border-slate-400"
-                                placeholder="you@example.com"
-                                required
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                Password <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="password"
-                                name="password"
-                                value={form.password}
-                                onChange={handleChange}
-                                className="w-full rounded-lg border-2 border-slate-300 px-4 py-3 text-sm transition-all duration-200 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 hover:border-slate-400"
-                                placeholder="Enter your password"
-                                required
-                            />
-                        </div>
-
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="w-full rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 px-6 py-4 text-sm font-bold text-white shadow-xl hover:shadow-2xl hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 focus:outline-none focus:ring-4 focus:ring-emerald-300/50 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {loading ? '⏳ Logging In...' : '🔓 Log In'}
-                        </button>
-                    </form>
-
-                    {/* Footer */}
-                    <div className="mt-6 text-center">
-                        <p className="text-sm text-slate-600">
-                            Don't have an account?{' '}
-                            <Link
-                                to="/signup"
-                                className="font-bold text-emerald-600 hover:text-emerald-700 hover:underline transition-colors"
-                            >
-                                Sign Up
-                            </Link>
-                        </p>
-                    </div>
-                </div>
-            </div>
+  return (
+    <div className="flex items-center justify-center min-h-[calc(100vh-160px)]">
+      <div className="w-full max-w-md animate-scale-in">
+        <div className="flex justify-center mb-8">
+          <div className="bg-brand-500/10 dark:bg-brand-500/20 p-4 rounded-2xl border border-brand-500/20">
+            <LogIn size={40} className="text-brand-600 dark:text-brand-400" />
+          </div>
         </div>
-    );
+
+        <Card>
+          <CardHeader 
+            title="Welcome back" 
+            subtitle="Sign in to access your inventory dashboard"
+            className="text-center"
+          />
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <Input
+              label="Email Address"
+              type="email"
+              icon={Mail}
+              placeholder="you@example.com"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              required
+            />
+
+            <Input
+              label="Password"
+              type="password"
+              icon={Lock}
+              placeholder="••••••••"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              required
+            />
+
+            {error && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 text-sm rounded-xl border border-rose-200 dark:border-rose-500/20 animate-fade-in text-center font-medium">
+                {error}
+              </div>
+            )}
+
+            <Button 
+              type="submit" 
+              variant="gradient" 
+              fullWidth 
+              size="lg" 
+              isLoading={isLoading}
+              className="mt-6"
+            >
+              Sign In <ArrowRight size={18} />
+            </Button>
+          </form>
+
+          <p className="text-center text-sm text-slate-600 dark:text-slate-400 mt-8">
+            Don't have an account?{' '}
+            <Link to="/signup" className="text-brand-600 dark:text-brand-400 font-bold hover:underline">
+              Create one now
+            </Link>
+          </p>
+        </Card>
+      </div>
+    </div>
+  );
 }
 
 export default Login;

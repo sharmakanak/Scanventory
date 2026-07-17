@@ -1,794 +1,431 @@
 import { useEffect, useState } from 'react';
 import QRCard from '../components/QRCard';
+import { Package, Search, Download, RefreshCw, AlertTriangle, Plus, MapPin, Tag, Database, ScanLine, X, Minus, Trash2 } from 'lucide-react';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { Card, CardHeader } from '../components/ui/Card';
+import { API_BASE } from '../config';
 
-const API_BASE = 'http://localhost:5000/api';
-
-// Simple helper to call backend with JWT token
 async function apiRequest(path, options = {}) {
-    const token = localStorage.getItem('token');
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` }),
+    },
+    ...options,
+  });
 
-    const res = await fetch(`${API_BASE}${path}`, {
-        headers: {
-            'Content-Type': 'application/json',
-            ...(token && { 'Authorization': `Bearer ${token}` }),
-        },
-        ...options,
-    });
-
-    if (!res.ok) {
-        const errorBody = await res.json().catch(() => ({}));
-
-        // If unauthorized, clear token and redirect to login
-        if (res.status === 401) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            window.location.href = '/login';
-        }
-
-        throw new Error(errorBody.message || 'Request failed');
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
     }
-
-    return res.json();
+    throw new Error(errorBody.message || `Request failed with status ${res.status}`);
+  }
+  return res.json();
 }
 
+function QuantityCell({ item, onChange, className = "w-24 text-base" }) {
+  const [val, setVal] = useState(item.quantity);
+
+  useEffect(() => {
+    setVal(item.quantity);
+  }, [item.quantity]);
+
+  const handleBlur = () => {
+    const newQty = parseInt(val, 10);
+    if (isNaN(newQty) || newQty < 0) {
+      setVal(item.quantity);
+      return;
+    }
+    if (newQty !== item.quantity) {
+      onChange(item._id, newQty - item.quantity);
+    }
+  };
+
+  return (
+    <input
+      type="number"
+      min="0"
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+      className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-center font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-brand-500 shadow-sm transition-all ${className}`}
+    />
+  );
+}
 function Dashboard() {
-    const [items, setItems] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-    const [form, setForm] = useState({
-        itemName: '',
-        category: '',
-        quantity: 0,
-        location: '',
-    });
+  const [form, setForm] = useState({ itemName: '', category: '', quantity: 0, location: '' });
+  const [scannedItemId, setScannedItemId] = useState('');
+  const [scannedItem, setScannedItem] = useState(null);
+  const [quantityInput, setQuantityInput] = useState('');
 
-    const [scannedItemId, setScannedItemId] = useState('');
-    const [scannedItem, setScannedItem] = useState(null);
-    const [quantityInput, setQuantityInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [locationFilter, setLocationFilter] = useState('all');
+  const [quantityFilter, setQuantityFilter] = useState('all');
+  const [toast, setToast] = useState(null);
+  const [previousQuantities, setPreviousQuantities] = useState({});
 
-    // Search and filter states
-    const [searchQuery, setSearchQuery] = useState('');
-    const [locationFilter, setLocationFilter] = useState('all');
-    const [quantityFilter, setQuantityFilter] = useState('all'); // 'all' or 'low'
-    const [toast, setToast] = useState(null);
-    const [previousQuantities, setPreviousQuantities] = useState({});
+  const loadItems = async () => {
+    setLoading(true); setError('');
+    try {
+      const data = await apiRequest('/items');
+      setItems(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // Fetch all items from backend
-    const loadItems = async () => {
-        setLoading(true);
-        setError('');
-        try {
-            const data = await apiRequest('/items');
-            setItems(data);
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
+  useEffect(() => { loadItems(); }, []);
+
+  useEffect(() => {
+    if (items.length > 0) {
+      items.forEach((item) => {
+        const prevQty = previousQuantities[item._id];
+        if (prevQty !== undefined && prevQty >= 5 && item.quantity < 5) {
+          showToast(`⚠️ Low Stock Alert: ${item.itemName} has ${item.quantity} items remaining!`, 'warning');
         }
-    };
+      });
+      const newPreviousQuantities = {};
+      items.forEach((item) => { newPreviousQuantities[item._id] = item.quantity; });
+      setPreviousQuantities(newPreviousQuantities);
+    }
+  }, [items]);
 
-    useEffect(() => {
-        loadItems();
-    }, []);
+  const showToast = (message, type = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000);
+  };
 
-    // Track quantities after loading items to detect low stock changes
-    useEffect(() => {
-        if (items.length > 0) {
-            items.forEach((item) => {
-                const prevQty = previousQuantities[item._id];
-                const currentQty = item.quantity;
+  const handleExportCSV = () => {
+    if (filteredItems.length === 0) {
+      showToast('No items to export', 'warning');
+      return;
+    }
+    const headers = ['Item Name', 'Category', 'Quantity', 'Location'];
+    const csvContent = [
+      headers.join(','),
+      ...filteredItems.map(item => `"${item.itemName.replace(/"/g, '""')}","${item.category.replace(/"/g, '""')}",${item.quantity},"${item.location.replace(/"/g, '""')}"`)
+    ].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.setAttribute('href', URL.createObjectURL(blob));
+    link.setAttribute('download', 'scanventory_export.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
-                // Check if item just reached low stock threshold (was >= 5, now < 5)
-                if (prevQty !== undefined && prevQty >= 5 && currentQty < 5) {
-                    showToast(`⚠️ Low Stock Alert: ${item.itemName} has ${currentQty} items remaining!`, 'warning');
-                }
-            });
+  const handleChange = (e) => setForm(prev => ({ ...prev, [e.target.name]: e.target.name === 'quantity' ? Number(e.target.value) : e.target.value }));
 
-            // Update previous quantities
-            const newPreviousQuantities = {};
-            items.forEach((item) => {
-                newPreviousQuantities[item._id] = item.quantity;
-            });
-            setPreviousQuantities(newPreviousQuantities);
-        }
-    }, [items]);
+  const handleCreateItem = async (e) => {
+    e.preventDefault(); setError('');
+    try {
+      await apiRequest('/items', { method: 'POST', body: JSON.stringify(form) });
+      if (form.quantity < 5) showToast(`⚠️ Low Stock Alert: ${form.itemName} was added with only ${form.quantity} items!`, 'warning');
+      setForm({ itemName: '', category: '', quantity: 0, location: '' });
+      await loadItems();
+    } catch (err) { setError(err.message); }
+  };
 
-    // Toast notification function
-    const showToast = (message, type = 'info') => {
-        setToast({ message, type });
-        setTimeout(() => {
-            setToast(null);
-        }, 5000);
-    };
+  const handleQuantityChange = async (id, delta) => {
+    setError('');
+    try {
+      await apiRequest(`/items/${id}/quantity`, { method: 'PATCH', body: JSON.stringify({ delta }) });
+      await loadItems();
+      if (scannedItem && scannedItem._id === id) {
+        const updated = await apiRequest(`/items/${id}`);
+        setScannedItem(updated);
+        setQuantityInput(updated.quantity.toString());
+      }
+    } catch (err) { setError(err.message); }
+  };
 
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setForm((prev) => ({
-            ...prev,
-            [name]: name === 'quantity' ? Number(value) : value,
-        }));
-    };
+  const handleDeleteItem = async (id) => {
+    if (!window.confirm('Are you sure you want to completely delete this item?')) return;
+    setError('');
+    try {
+      await apiRequest(`/items/${id}`, { method: 'DELETE' });
+      showToast('Item deleted successfully.', 'info');
+      if (scannedItem && scannedItem._id === id) {
+        setScannedItem(null);
+        setScannedItemId('');
+      }
+      await loadItems();
+    } catch (err) { setError(err.message); }
+  };
 
-    const handleCreateItem = async (e) => {
-        e.preventDefault();
-        setError('');
-        try {
-            await apiRequest('/items', {
-                method: 'POST',
-                body: JSON.stringify(form),
-            });
+  const handleLoadScannedItem = async () => {
+    if (!scannedItemId) return;
+    if (scannedItem && scannedItem._id === scannedItemId) { showToast('Item already loaded', 'info'); return; }
+    setError('');
+    try {
+      const item = await apiRequest(`/items/${scannedItemId}`);
+      setScannedItem(item);
+      setQuantityInput(item.quantity.toString());
+    } catch (err) {
+      setScannedItem(null); setQuantityInput(''); setError(err.message);
+    }
+  };
 
-            // Check if new item has low stock
-            if (form.quantity < 5) {
-                showToast(`⚠️ Low Stock Alert: ${form.itemName} was added with only ${form.quantity} items!`, 'warning');
-            }
+  const handleQuantityInputBlur = async () => {
+    if (!scannedItem || quantityInput === '') return;
+    const newQuantity = parseInt(quantityInput, 10);
+    if (isNaN(newQuantity) || newQuantity < 0) {
+      setQuantityInput(scannedItem.quantity.toString());
+      showToast('Invalid quantity.', 'warning');
+      return;
+    }
+    const delta = newQuantity - scannedItem.quantity;
+    if (delta !== 0) await handleQuantityChange(scannedItem._id, delta);
+  };
 
-            setForm({
-                itemName: '',
-                category: '',
-                quantity: 0,
-                location: '',
-            });
-            await loadItems();
-        } catch (err) {
-            setError(err.message);
-        }
-    };
+  const filteredItems = items.filter((item) => {
+    return (searchQuery === '' || item.itemName.toLowerCase().includes(searchQuery.toLowerCase())) &&
+           (locationFilter === 'all' || item.location === locationFilter) &&
+           (quantityFilter === 'all' || (quantityFilter === 'low' && item.quantity < 5));
+  });
 
-    const handleQuantityChange = async (id, delta) => {
-        setError('');
-        try {
-            await apiRequest(`/items/${id}/quantity`, {
-                method: 'PATCH',
-                body: JSON.stringify({ delta }),
-            });
-            await loadItems();
-            if (scannedItem && scannedItem._id === id) {
-                // refresh scanned item details as well
-                const updated = await apiRequest(`/items/${id}`);
-                setScannedItem(updated);
-                setQuantityInput(updated.quantity.toString()); // Update quantity input
-            }
-        } catch (err) {
-            setError(err.message);
-        }
-    };
+  const uniqueLocations = [...new Set(items.map((item) => item.location))].sort();
 
-    const handleScanInputChange = (e) => {
-        setScannedItemId(e.target.value.trim());
-    };
-
-    const handleLoadScannedItem = async () => {
-        if (!scannedItemId) return;
-
-        // Check if the item is already loaded
-        if (scannedItem && scannedItem._id === scannedItemId) {
-            showToast('Item already loaded', 'info');
-            return;
-        }
-
-        setError('');
-        try {
-            const item = await apiRequest(`/items/${scannedItemId}`);
-            setScannedItem(item);
-            setQuantityInput(item.quantity.toString()); // Initialize quantity input
-        } catch (err) {
-            setScannedItem(null);
-            setQuantityInput('');
-            setError(err.message);
-        }
-    };
-
-    // Handle manual quantity update for scanned item
-    const handleQuantityInputChange = (e) => {
-        const value = e.target.value;
-        // Allow empty string, numbers, and negative numbers
-        if (value === '' || /^-?\d*$/.test(value)) {
-            setQuantityInput(value);
-        }
-    };
-
-    const handleQuantityInputBlur = async () => {
-        if (!scannedItem || quantityInput === '') return;
-
-        const newQuantity = parseInt(quantityInput, 10);
-
-        // Validate input
-        if (isNaN(newQuantity) || newQuantity < 0) {
-            setQuantityInput(scannedItem.quantity.toString());
-            showToast('Invalid quantity. Please enter a number >= 0', 'warning');
-            return;
-        }
-
-        // Calculate delta
-        const delta = newQuantity - scannedItem.quantity;
-
-        if (delta === 0) {
-            // No change needed
-            return;
-        }
-
-        // Update quantity
-        await handleQuantityChange(scannedItem._id, delta);
-    };
-
-    const handleQuantityInputKeyPress = (e) => {
-        if (e.key === 'Enter') {
-            e.target.blur(); // Trigger blur to save
-        }
-    };
-
-    // Filter items based on search and filters
-    const filteredItems = items.filter((item) => {
-        // Search filter (case-insensitive)
-        const matchesSearch = searchQuery === '' ||
-            item.itemName.toLowerCase().includes(searchQuery.toLowerCase());
-
-        // Location filter
-        const matchesLocation = locationFilter === 'all' || item.location === locationFilter;
-
-        // Quantity filter
-        const matchesQuantity = quantityFilter === 'all' ||
-            (quantityFilter === 'low' && item.quantity < 5);
-
-        return matchesSearch && matchesLocation && matchesQuantity;
-    });
-
-    // Get unique locations for filter dropdown
-    const uniqueLocations = [...new Set(items.map((item) => item.location))].sort();
-
-    // Calculate stats based on filtered items
-    const totalItems = filteredItems.length;
-    const lowStockItems = filteredItems.filter((item) => item.quantity < 5).length;
-    const totalQuantity = filteredItems.reduce((sum, item) => sum + item.quantity, 0);
-
-    return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50  via-indigo-50/40 to-purple-50/30">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                {/* Premium Header */}
-                <header className="mb-10">
-                    <div className="flex items-center justify-between mb-6">
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-3">
-                                <div className="bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 rounded-2xl p-3 shadow-lg">
-                                    <span className="text-3xl">📦</span>
-                                </div>
-                                <div>
-                                    <h1 className="text-5xl font-extrabold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent mb-1 tracking-tight">
-                                        Scanventory
-                                    </h1>
-                                    <p className="text-sm font-medium text-slate-500 uppercase tracking-wider">
-                                        A QR Code Based Inventory Management System
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        <button
-                            onClick={loadItems}
-                            disabled={loading}
-                            className="hidden sm:flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-lg hover:shadow-xl transition-all duration-200 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 border-2 border-slate-200 hover:border-blue-300 disabled:opacity-50"
-                        >
-                            <span className={loading ? 'animate-spin text-lg' : 'text-lg'}>🔄</span>
-                            {loading ? 'Refreshing...' : 'Refresh'}
-                        </button>
-                    </div>
-
-                    {/* Premium Stats Cards */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
-                        <div className="group bg-white rounded-2xl p-6 shadow-xl border-2 border-slate-100 hover:shadow-2xl hover:border-blue-200 transition-all duration-300 transform hover:-translate-y-1">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider mb-2">Total Items</p>
-                                    <p className="text-4xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">{totalItems}</p>
-                                </div>
-                                <div className="bg-gradient-to-br from-blue-100 to-indigo-100 rounded-2xl p-4 group-hover:scale-110 transition-transform duration-300">
-                                    <span className="text-3xl">📋</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="group bg-white rounded-2xl p-6 shadow-xl border-2 border-slate-100 hover:shadow-2xl hover:border-green-200 transition-all duration-300 transform hover:-translate-y-1">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider mb-2">Total Stock</p>
-                                    <p className="text-4xl font-extrabold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">{totalQuantity}</p>
-                                </div>
-                                <div className="bg-gradient-to-br from-green-100 to-emerald-100 rounded-2xl p-4 group-hover:scale-110 transition-transform duration-300">
-                                    <span className="text-3xl">📊</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="group bg-white rounded-2xl p-6 shadow-xl border-2 border-red-100 hover:shadow-2xl hover:border-red-300 transition-all duration-300 transform hover:-translate-y-1">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider mb-2">Low Stock</p>
-                                    <p className="text-4xl font-extrabold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent">{lowStockItems}</p>
-                                </div>
-                                <div className="bg-gradient-to-br from-red-100 to-rose-100 rounded-2xl p-4 group-hover:scale-110 transition-transform duration-300">
-                                    <span className="text-3xl">⚠️</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </header>
-
-                {/* Premium Error Alert */}
-                {error && (
-                    <div className="mb-6 rounded-2xl border-2 border-red-300 bg-gradient-to-r from-red-50 to-rose-50 px-6 py-4 text-sm text-red-800 shadow-xl flex items-center gap-3 backdrop-blur-sm">
-                        <span className="text-2xl animate-pulse">❌</span>
-                        <span className="font-semibold">{error}</span>
-                    </div>
-                )}
-
-                {/* Toast Notification */}
-                {toast && (
-                    <div className={`fixed top-4 right-4 z-50 rounded-2xl border-2 px-6 py-4 text-sm font-semibold shadow-2xl backdrop-blur-sm animate-fade-in ${toast.type === 'warning'
-                        ? 'border-yellow-300 bg-gradient-to-r from-yellow-50 to-orange-50 text-yellow-800'
-                        : 'border-blue-300 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-800'
-                        }`}>
-                        <div className="flex items-center gap-3">
-                            <span className="text-2xl">{toast.type === 'warning' ? '⚠️' : 'ℹ️'}</span>
-                            <span>{toast.message}</span>
-                            <button
-                                onClick={() => setToast(null)}
-                                className="ml-2 text-slate-500 hover:text-slate-700"
-                            >
-                                ✕
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                <main className="space-y-6">
-                    {/* Premium Add Item Form */}
-                    <section className="flex justify-center">
-                        <div className="w-full max-w-md bg-white/80 backdrop-blur-sm rounded-3xl p-8 shadow-2xl border-2 border-slate-200/50 hover:shadow-3xl hover:border-blue-300 transition-all duration-300">
-                            <div className="flex items-center gap-4 mb-8">
-                                <div className="bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-600 rounded-2xl p-3 shadow-lg">
-                                    <span className="text-2xl">➕</span>
-                                </div>
-                                <div>
-                                    <h2 className="text-2xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Add New Item</h2>
-                                    <p className="text-xs text-slate-500 font-medium mt-1">Create a new inventory entry</p>
-                                </div>
-                            </div>
-                            <form className="space-y-5" onSubmit={handleCreateItem}>
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                        Item Name <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        name="itemName"
-                                        value={form.itemName}
-                                        onChange={handleChange}
-                                        className="w-full rounded-lg border-2 border-slate-300 px-4 py-3 text-sm transition-all duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 hover:border-slate-400"
-                                        placeholder="e.g. USB Cable"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                        Category <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        name="category"
-                                        value={form.category}
-                                        onChange={handleChange}
-                                        className="w-full rounded-lg border-2 border-slate-300 px-4 py-3 text-sm transition-all duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 hover:border-slate-400"
-                                        placeholder="e.g. Electronics"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                        Quantity <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="number"
-                                        name="quantity"
-                                        value={form.quantity}
-                                        min={0}
-                                        onChange={handleChange}
-                                        className="w-full rounded-lg border-2 border-slate-300 px-4 py-3 text-sm transition-all duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 hover:border-slate-400"
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                        Location <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        name="location"
-                                        value={form.location}
-                                        onChange={handleChange}
-                                        className="w-full rounded-lg border-2 border-slate-300 px-4 py-3 text-sm transition-all duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 hover:border-slate-400"
-                                        placeholder="e.g. Shelf A2"
-                                        required
-                                    />
-                                </div>
-                                <button
-                                    type="submit"
-                                    className="w-full rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 px-6 py-4 text-sm font-bold text-white shadow-xl hover:shadow-2xl hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 focus:outline-none focus:ring-4 focus:ring-blue-300/50 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
-                                >
-                                    ✨ Save Item & Generate QR
-                                </button>
-                            </form>
-                        </div>
-                    </section>
-
-                    {/* Premium Items List */}
-                    <section className="space-y-4">
-                        <div className="flex items-center justify-between gap-2 mb-6">
-                            <div className="flex items-center gap-4">
-                                <div className="bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-600 rounded-2xl p-3 shadow-lg">
-                                    <span className="text-2xl">📦</span>
-                                </div>
-                                <div>
-                                    <h2 className="text-3xl font-extrabold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">Inventory Items</h2>
-                                    {filteredItems.length > 0 && (
-                                        <span className="inline-flex items-center bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-700 px-4 py-1 rounded-full text-xs font-bold mt-2 border border-blue-200">
-                                            {filteredItems.length} {filteredItems.length === 1 ? 'item' : 'items'} {searchQuery || locationFilter !== 'all' || quantityFilter !== 'all' ? 'found' : 'in stock'}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                            <button
-                                onClick={loadItems}
-                                disabled={loading}
-                                className="sm:hidden flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-md hover:shadow-lg transition-all duration-200 border border-slate-200 disabled:opacity-50"
-                            >
-                                <span className={loading ? 'animate-spin' : ''}>🔄</span>
-                                {loading ? 'Loading...' : 'Refresh'}
-                            </button>
-                        </div>
-
-                        {/* Search and Filter Section */}
-                        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-xl border-2 border-slate-200/50 mb-6">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {/* Search Bar */}
-                                <div className="md:col-span-1">
-                                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                                        🔍 Search Items
-                                    </label>
-                                    <div className="relative">
-                                        <input
-                                            type="text"
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
-                                            placeholder="Search by item name..."
-                                            className="w-full rounded-lg border-2 border-slate-300 px-4 py-3 pl-10 text-sm font-medium transition-all duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 hover:border-slate-400"
-                                        />
-                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
-                                        {searchQuery && (
-                                            <button
-                                                onClick={() => setSearchQuery('')}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                                            >
-                                                ✕
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Location Filter */}
-                                <div className="md:col-span-1">
-                                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                                        📍 Filter by Location
-                                    </label>
-                                    <select
-                                        value={locationFilter}
-                                        onChange={(e) => setLocationFilter(e.target.value)}
-                                        className="w-full rounded-lg border-2 border-slate-300 px-4 py-3 text-sm font-medium transition-all duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 hover:border-slate-400 bg-white"
-                                    >
-                                        <option value="all">All Locations</option>
-                                        {uniqueLocations.map((location) => (
-                                            <option key={location} value={location}>
-                                                {location}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Quantity Filter */}
-                                <div className="md:col-span-1">
-                                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                                        📊 Filter by Quantity
-                                    </label>
-                                    <select
-                                        value={quantityFilter}
-                                        onChange={(e) => setQuantityFilter(e.target.value)}
-                                        className="w-full rounded-lg border-2 border-slate-300 px-4 py-3 text-sm font-medium transition-all duration-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 hover:border-slate-400 bg-white"
-                                    >
-                                        <option value="all">All Items</option>
-                                        <option value="low">Low Stock (&lt; 5)</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            {/* Active Filters Display */}
-                            {(searchQuery || locationFilter !== 'all' || quantityFilter !== 'all') && (
-                                <div className="mt-4 flex flex-wrap items-center gap-2">
-                                    <span className="text-xs font-semibold text-slate-600">Active Filters:</span>
-                                    {searchQuery && (
-                                        <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">
-                                            Search: "{searchQuery}" <button onClick={() => setSearchQuery('')} className="ml-1 hover:text-blue-900">✕</button>
-                                        </span>
-                                    )}
-                                    {locationFilter !== 'all' && (
-                                        <span className="inline-flex items-center gap-1 bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold">
-                                            Location: {locationFilter} <button onClick={() => setLocationFilter('all')} className="ml-1 hover:text-indigo-900">✕</button>
-                                        </span>
-                                    )}
-                                    {quantityFilter !== 'all' && (
-                                        <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold">
-                                            Low Stock <button onClick={() => setQuantityFilter('all')} className="ml-1 hover:text-red-900">✕</button>
-                                        </span>
-                                    )}
-                                    <button
-                                        onClick={() => {
-                                            setSearchQuery('');
-                                            setLocationFilter('all');
-                                            setQuantityFilter('all');
-                                        }}
-                                        className="text-xs font-bold text-slate-600 hover:text-slate-900 underline"
-                                    >
-                                        Clear All
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-
-                        {loading && items.length === 0 ? (
-                            <div className="bg-white/80 backdrop-blur-sm rounded-3xl p-12 shadow-2xl border-2 border-slate-200 text-center">
-                                <div className="animate-spin text-5xl mb-4">⏳</div>
-                                <p className="text-slate-600 font-semibold text-lg">Loading inventory...</p>
-                            </div>
-                        ) : (
-                            <div className="overflow-x-auto rounded-3xl border-2 border-slate-200/50 bg-white/80 backdrop-blur-sm shadow-2xl">
-                                <table className="min-w-full divide-y divide-slate-200">
-                                    <thead className="bg-gradient-to-r from-slate-50 via-blue-50/50 to-indigo-50/50">
-                                        <tr>
-                                            <th className="px-6 py-5 text-left text-xs font-extrabold text-slate-700 uppercase tracking-widest">
-                                                Item
-                                            </th>
-                                            <th className="px-6 py-5 text-left text-xs font-extrabold text-slate-700 uppercase tracking-widest">
-                                                Category
-                                            </th>
-                                            <th className="px-6 py-5 text-left text-xs font-extrabold text-slate-700 uppercase tracking-widest">
-                                                Location
-                                            </th>
-                                            <th className="px-6 py-5 text-center text-xs font-extrabold text-slate-700 uppercase tracking-widest">
-                                                Quantity
-                                            </th>
-                                            <th className="px-6 py-5 text-center text-xs font-extrabold text-slate-700 uppercase tracking-widest">
-                                                QR Code
-                                            </th>
-                                            <th className="px-6 py-5 text-center text-xs font-extrabold text-slate-700 uppercase tracking-widest">
-                                                Actions
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-slate-100">
-                                        {filteredItems.map((item) => (
-                                            <tr
-                                                key={item._id}
-                                                className="hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-indigo-50/50 transition-all duration-200"
-                                            >
-                                                <td className={`px-6 py-4 whitespace-nowrap ${item.quantity < 5 ? 'bg-red-50/30' : ''}`}>
-                                                    <div className="flex flex-col">
-                                                        <span className={`text-sm font-bold ${item.quantity < 5 ? 'text-red-700' : 'text-slate-900'}`}>
-                                                            {item.itemName}
-                                                        </span>
-                                                        {item.quantity < 5 && (
-                                                            <span className="mt-2 inline-flex items-center rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700 border-2 border-red-300 animate-pulse shadow-md">
-                                                                ⚠️ LOW STOCK
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
-                                                        {item.category}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <span className="text-sm font-medium text-slate-700 flex items-center gap-1">
-                                                        📍 {item.location}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-center">
-                                                    <span
-                                                        className={`inline-flex items-center px-4 py-2 rounded-lg text-sm font-bold ${item.quantity < 5
-                                                            ? 'bg-red-100 text-red-700'
-                                                            : item.quantity < 10
-                                                                ? 'bg-yellow-100 text-yellow-700'
-                                                                : 'bg-green-100 text-green-700'
-                                                            }`}
-                                                    >
-                                                        {item.quantity}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-center">
-                                                    {item.qrCode && (
-                                                        <div className="flex justify-center">
-                                                            <QRCard qrCodeDataUrl={item.qrCode} itemId={item._id} size="small" />
-                                                        </div>
-                                                    )}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-center">
-                                                    <div className="flex items-center justify-center gap-2">
-                                                        <button
-                                                            onClick={() => handleQuantityChange(item._id, -1)}
-                                                            className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100 hover:border-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-110 active:scale-95"
-                                                            disabled={item.quantity === 0}
-                                                            title="Decrease quantity"
-                                                        >
-                                                            ➖ -1
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleQuantityChange(item._id, 1)}
-                                                            className="rounded-lg border-2 border-green-300 bg-green-50 px-3 py-1.5 text-xs font-bold text-green-700 hover:bg-green-100 hover:border-green-400 transition-all duration-200 transform hover:scale-110 active:scale-95"
-                                                            title="Increase quantity"
-                                                        >
-                                                            ➕ +1
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
-
-                                        {filteredItems.length === 0 && !loading && (
-                                            <tr>
-                                                <td
-                                                    colSpan={6}
-                                                    className="px-6 py-12 text-center"
-                                                >
-                                                    <div className="flex flex-col items-center gap-3">
-                                                        <span className="text-5xl">🔍</span>
-                                                        <p className="text-slate-500 font-medium text-lg">
-                                                            {items.length === 0
-                                                                ? 'No items in inventory yet'
-                                                                : 'No items match your filters'
-                                                            }
-                                                        </p>
-                                                        <p className="text-slate-400 text-sm">
-                                                            {items.length === 0
-                                                                ? 'Add your first item using the form above'
-                                                                : 'Try adjusting your search or filter criteria'
-                                                            }
-                                                        </p>
-                                                        {(searchQuery || locationFilter !== 'all' || quantityFilter !== 'all') && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    setSearchQuery('');
-                                                                    setLocationFilter('all');
-                                                                    setQuantityFilter('all');
-                                                                }}
-                                                                className="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
-                                                            >
-                                                                Clear Filters
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </section>
-
-                    {/* Premium QR Scan Section */}
-                    <section className="bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 rounded-3xl border-2 border-emerald-200/50 p-8 shadow-2xl backdrop-blur-sm">
-                        <div className="flex items-center gap-4 mb-6">
-                            <div className="bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-600 rounded-2xl p-3 shadow-lg">
-                                <span className="text-3xl">📷</span>
-                            </div>
-                            <div>
-                                <h3 className="text-2xl font-extrabold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-                                    QR Code Scanner
-                                </h3>
-                                <p className="text-sm text-slate-600 font-medium mt-1">
-                                    Enter or paste Item ID to load item details instantly
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col sm:flex-row gap-3">
-                            <input
-                                type="text"
-                                value={scannedItemId}
-                                onChange={handleScanInputChange}
-                                onKeyPress={(e) => e.key === 'Enter' && handleLoadScannedItem()}
-                                placeholder="Paste scanned item ID here..."
-                                className="flex-1 rounded-lg border-2 border-emerald-300 px-4 py-3 text-sm font-medium transition-all duration-200 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 hover:border-emerald-400"
-                            />
-                            <button
-                                type="button"
-                                onClick={handleLoadScannedItem}
-                                className="rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 px-8 py-3 text-sm font-bold text-white shadow-xl hover:shadow-2xl hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 focus:outline-none focus:ring-4 focus:ring-emerald-300/50 transition-all duration-300 transform hover:scale-105 active:scale-95"
-                            >
-                                🔍 Load Item
-                            </button>
-                        </div>
-
-                        {scannedItem && (
-                            <div className="mt-6 bg-white/90 backdrop-blur-sm rounded-3xl border-2 border-emerald-300/50 p-6 shadow-2xl animate-fade-in">
-                                <div className="flex flex-col lg:flex-row items-start justify-between gap-6">
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-4 mb-4">
-                                            <div className="bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-600 rounded-2xl p-3 shadow-lg">
-                                                <span className="text-2xl">✅</span>
-                                            </div>
-                                            <div>
-                                                <h4 className="text-2xl font-extrabold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-                                                    {scannedItem.itemName}
-                                                </h4>
-                                                <div className="flex items-center gap-2 mt-2">
-                                                    <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-gradient-to-r from-indigo-100 to-purple-100 text-indigo-800 border border-indigo-200">
-                                                        {scannedItem.category}
-                                                    </span>
-                                                    <span className="text-xs text-slate-400">•</span>
-                                                    <span className="text-sm text-slate-600 font-semibold">
-                                                        📍 {scannedItem.location}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="space-y-4">
-                                            <div className="flex items-center gap-6 flex-wrap">
-                                                <div>
-                                                    <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">Current Stock</p>
-                                                    <p className={`text-3xl font-extrabold ${scannedItem.quantity < 5 ? 'bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent' :
-                                                        scannedItem.quantity < 10 ? 'bg-gradient-to-r from-yellow-600 to-orange-600 bg-clip-text text-transparent' :
-                                                            'bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent'
-                                                        }`}>
-                                                        {scannedItem.quantity}
-                                                    </p>
-                                                </div>
-                                                {scannedItem.quantity < 5 && (
-                                                    <div className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-xl px-4 py-2 shadow-lg">
-                                                        <p className="text-xs font-bold text-red-700">⚠️ Low Stock Alert</p>
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Quantity Input Field */}
-                                            <div className="flex items-center gap-3">
-                                                <label className="text-sm font-bold text-slate-700 whitespace-nowrap">
-                                                    Update Quantity:
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={quantityInput}
-                                                    onChange={handleQuantityInputChange}
-                                                    onBlur={handleQuantityInputBlur}
-                                                    onKeyPress={handleQuantityInputKeyPress}
-                                                    className="w-28 rounded-lg border-2 border-emerald-300 px-3 py-2 text-base font-bold text-slate-900 bg-white focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 hover:border-emerald-400 transition-all duration-200 text-center"
-                                                    placeholder="Qty"
-                                                />
-                                                <span className="text-xs text-slate-500">(Press Enter to save)</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    {scannedItem.qrCode && (
-                                        <div className="flex flex-col items-center gap-3">
-                                            <p className="text-sm font-bold text-slate-700 uppercase tracking-wider">QR Code</p>
-                                            <QRCard qrCodeDataUrl={scannedItem.qrCode} itemId={scannedItem._id} size="large" />
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </section>
-                </main>
-            </div>
+  return (
+    <div className="space-y-8 pb-12">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold font-display text-slate-900 dark:text-white flex items-center gap-3">
+            <Package className="text-brand-500" size={32} />
+            Inventory Dashboard
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Manage and track your items</p>
         </div>
-    );
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={handleExportCSV}>
+            <Download size={18} /> Export
+          </Button>
+          <Button variant="gradient" onClick={loadItems} isLoading={loading}>
+            <RefreshCw size={18} /> Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* Alerts */}
+      {error && (
+        <div className="p-4 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-2xl flex items-center gap-3 text-rose-700 dark:text-rose-400 animate-fade-in">
+          <AlertTriangle size={24} />
+          <span className="font-medium">{error}</span>
+        </div>
+      )}
+      {toast && (
+        <div className={`fixed bottom-4 right-4 z-50 p-4 rounded-2xl border flex items-center gap-3 shadow-2xl animate-slide-up ${
+          toast.type === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-brand-50 border-brand-200 text-brand-800'
+        }`}>
+          {toast.type === 'warning' ? <AlertTriangle size={20} /> : <Package size={20} />}
+          <span className="font-medium">{toast.message}</span>
+          <button onClick={() => setToast(null)}><X size={16}/></button>
+        </div>
+      )}
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="hover:-translate-y-1 transition-transform border-t-4 border-t-brand-500">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Total Items</p>
+              <p className="text-4xl font-extrabold text-slate-900 dark:text-white mt-1">{filteredItems.length}</p>
+            </div>
+            <div className="p-4 bg-brand-100 dark:bg-brand-500/20 text-brand-600 dark:text-brand-400 rounded-2xl"><Database size={32}/></div>
+          </div>
+        </Card>
+        <Card className="hover:-translate-y-1 transition-transform border-t-4 border-t-emerald-500">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Total Stock</p>
+              <p className="text-4xl font-extrabold text-slate-900 dark:text-white mt-1">{filteredItems.reduce((s, i) => s + i.quantity, 0)}</p>
+            </div>
+            <div className="p-4 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-2xl"><Package size={32}/></div>
+          </div>
+        </Card>
+        <Card className="hover:-translate-y-1 transition-transform border-t-4 border-t-rose-500">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Low Stock</p>
+              <p className="text-4xl font-extrabold text-slate-900 dark:text-white mt-1">{filteredItems.filter(i => i.quantity < 5).length}</p>
+            </div>
+            <div className="p-4 bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-2xl"><AlertTriangle size={32}/></div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Vertical Single-Column Layout */}
+      <div className="flex flex-col gap-8">
+        
+        {/* 1. Add New Item */}
+        <Card>
+          <CardHeader title="Add New Item" subtitle="Create a new inventory entry" />
+          <form onSubmit={handleCreateItem} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+            <Input label="Item Name" name="itemName" value={form.itemName} onChange={handleChange} required placeholder="e.g. USB Cable" icon={Tag} />
+            <Input label="Category" name="category" value={form.category} onChange={handleChange} required placeholder="e.g. Electronics" icon={Database} />
+            <Input label="Quantity" name="quantity" type="number" min={0} value={form.quantity} onChange={handleChange} required icon={Package} />
+            <Input label="Location" name="location" value={form.location} onChange={handleChange} required placeholder="e.g. Shelf A2" icon={MapPin} />
+            <div className="lg:col-span-4 mt-4 flex justify-center">
+              <Button type="submit" variant="gradient" className="w-full sm:w-auto px-12">
+                <Plus size={18} /> Add Item
+              </Button>
+            </div>
+          </form>
+        </Card>
+
+        {/* 2. Inventory List (Table) */}
+        <Card noPadding className="relative z-0">
+          <div className="p-6 border-b border-slate-200 dark:border-slate-800 space-y-4">
+            <CardHeader title="Inventory List" subtitle="Manage and filter your items" className="mb-0" />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Input placeholder="Search..." value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} icon={Search} />
+              <select value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)} className="w-full rounded-xl border bg-white dark:bg-slate-900/50 px-4 py-2.5 text-sm outline-none border-slate-200 dark:border-slate-700">
+                <option value="all">All Locations</option>
+                {uniqueLocations.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              <select value={quantityFilter} onChange={(e) => setQuantityFilter(e.target.value)} className="w-full rounded-xl border bg-white dark:bg-slate-900/50 px-4 py-2.5 text-sm outline-none border-slate-200 dark:border-slate-700">
+                <option value="all">All Quantities</option>
+                <option value="low">Low Stock (&lt;5)</option>
+              </select>
+            </div>
+          </div>
+          
+          <div className="overflow-visible pb-12">
+            <table className="w-full text-left border-collapse relative">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <th className="p-4 font-semibold">Item</th>
+                  <th className="p-4 font-semibold text-center w-40">QR & ID</th>
+                  <th className="p-4 font-semibold">Location</th>
+                  <th className="p-4 font-semibold text-center">Stock</th>
+                  <th className="p-4 font-semibold text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+                {filteredItems.map(item => (
+                  <tr key={item._id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <td className="p-4">
+                      <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                        {item.itemName}
+                        {item.quantity < 5 && <span className="bg-rose-100 text-rose-700 text-[10px] px-2 py-0.5 rounded-full font-bold">LOW</span>}
+                      </div>
+                      <div className="text-xs text-slate-500 mt-0.5">{item.category}</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        {item.qrCode ? (
+                          <div className="bg-white p-1.5 rounded-xl shadow-sm border border-slate-200 flex-shrink-0">
+                            <img src={item.qrCode} alt="QR Code" className="w-24 h-24 object-contain" />
+                          </div>
+                        ) : (
+                          <div className="w-28 h-28 flex items-center justify-center text-slate-300 bg-slate-100 rounded-xl"><Package size={32}/></div>
+                        )}
+                        <div className="flex flex-col items-center gap-1">
+                          <code 
+                            className="text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 w-[110px] text-center truncate cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors select-all shadow-sm"
+                            title={item._id}
+                            onClick={() => {
+                              navigator.clipboard.writeText(item._id);
+                              showToast('ID copied to clipboard!', 'info');
+                            }}
+                          >
+                            {item._id}
+                          </code>
+                          <span className="text-[9px] text-slate-400 font-medium">Click to copy</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-4 text-sm text-slate-600 dark:text-slate-300">{item.location}</td>
+                    <td className="p-4 text-center">
+                      <QuantityCell item={item} onChange={handleQuantityChange} className="w-20 text-sm py-1.5" />
+                    </td>
+                    <td className="p-4">
+                      <div className="flex justify-center">
+                        <Button variant="ghost" size="icon" className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10" onClick={() => handleDeleteItem(item._id)}><Trash2 size={18}/></Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {filteredItems.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="p-8 text-center text-slate-500">
+                      <Package size={48} className="mx-auto text-slate-300 mb-3" />
+                      <p>No items found.</p>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        {/* 3. Quick Scan */}
+        <Card>
+          <div className="max-w-3xl mx-auto w-full flex flex-col items-center">
+            <div className="text-center mb-6">
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Quick Scan</h3>
+              <p className="text-sm text-slate-500 mt-1">Load and manage a specific item by QR ID</p>
+            </div>
+            
+            <div className="flex gap-3 w-full">
+              <div className="flex-1">
+                <Input 
+                  placeholder="Enter Item ID..." 
+                  value={scannedItemId} 
+                  onChange={(e) => setScannedItemId(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleLoadScannedItem()}
+                  icon={ScanLine}
+                />
+              </div>
+              <Button onClick={handleLoadScannedItem} variant="primary" className="px-8"><Search size={20}/></Button>
+            </div>
+            
+            {scannedItem && (
+              <div className="mt-8 p-8 w-full bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-8">
+                {/* Left Side: Details */}
+                <div className="flex-1 w-full text-left">
+                  <h4 className="font-bold text-3xl mb-2 text-slate-900 dark:text-white">{scannedItem.itemName}</h4>
+                  <div className="flex items-center gap-6 text-sm text-slate-500 mb-8">
+                    <span className="flex items-center gap-1.5"><Tag size={16} className="text-brand-500"/> {scannedItem.category}</span>
+                    <span className="flex items-center gap-1.5"><MapPin size={16} className="text-accent-500"/> {scannedItem.location}</span>
+                  </div>
+                  
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-8 border-t border-slate-200 dark:border-slate-700 pt-8">
+                    <span className="font-medium text-slate-700 dark:text-slate-300 uppercase tracking-widest text-xs">Current Stock</span>
+                    <div className="flex items-center gap-4">
+                      <QuantityCell item={scannedItem} onChange={handleQuantityChange} className="w-28 h-12 text-xl" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Side: QR Code */}
+                <div className="flex-shrink-0 flex flex-col justify-center items-center bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                  <QRCard qrCodeDataUrl={scannedItem.qrCode} itemId={scannedItem._id} size="medium" />
+                  <code className="text-xs mt-3 font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-md select-all text-center">
+                    {scannedItem._id}
+                  </code>
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+
+      </div>
+    </div>
+  );
 }
 
 export default Dashboard;
