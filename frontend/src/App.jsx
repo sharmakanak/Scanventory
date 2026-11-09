@@ -9,6 +9,7 @@ import Analytics from './pages/Analytics';
 import PrintLabels from './pages/PrintLabels';
 import Profile from './pages/Profile';
 import LandingPage from './pages/LandingPage';
+import ItemDetails from './pages/ItemDetails';
 import { ThemeProvider } from './context/ThemeContext';
 import './App.css';
 
@@ -34,6 +35,8 @@ function App() {
                 <Route path="/analytics" element={<Analytics />} />
                 <Route path="/print-labels" element={<PrintLabels />} />
                 <Route path="/profile" element={<Profile />} />
+                <Route path="/item/:id" element={<ItemDetails />} />
+                <Route path="/scan/:id" element={<ItemDetails />} />
               </Routes>
             </main>
           </div>

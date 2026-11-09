@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import QRCode from 'qrcode';
 import QRCard from '../components/QRCard';
 import { Package, Search, Download, RefreshCw, AlertTriangle, Plus, MapPin, Tag, Database, ScanLine, X, Minus, Trash2 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
@@ -26,6 +28,23 @@ async function apiRequest(path, options = {}) {
     throw new Error(errorBody.message || `Request failed with status ${res.status}`);
   }
   return res.json();
+}
+
+function ItemQRCode({ itemId, fallback, baseUrl, className = "w-24 h-24 object-contain" }) {
+  const [src, setSrc] = useState(fallback || '');
+
+  useEffect(() => {
+    if (!itemId) return;
+    const host = baseUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+    if (host) {
+      QRCode.toDataURL(`${host}/item/${itemId}`, { errorCorrectionLevel: 'M', margin: 2, width: 300 })
+        .then(setSrc)
+        .catch(() => setSrc(fallback || ''));
+    }
+  }, [itemId, fallback, baseUrl]);
+
+  if (!src) return <div className="w-24 h-24 bg-slate-100 dark:bg-slate-800 rounded-xl animate-pulse" />;
+  return <img src={src} alt="QR Code" className={className} />;
 }
 
 function QuantityCell({ item, onChange, className = "w-24 text-base" }) {
@@ -73,6 +92,29 @@ function Dashboard() {
   const [quantityFilter, setQuantityFilter] = useState('all');
   const [toast, setToast] = useState(null);
   const [previousQuantities, setPreviousQuantities] = useState({});
+  const [networkInfo, setNetworkInfo] = useState(null);
+  const [isSyncingQr, setIsSyncingQr] = useState(false);
+
+  const loadNetworkInfo = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/items/network-info`);
+      if (res.ok) setNetworkInfo(await res.json());
+    } catch {}
+  };
+
+  const handleSyncQrCodes = async () => {
+    setIsSyncingQr(true);
+    try {
+      const res = await apiRequest('/items/regenerate-all-qr', { method: 'POST' });
+      showToast(res.message || 'QR codes updated to current network!', 'info');
+      await loadItems();
+      await loadNetworkInfo();
+    } catch (err) {
+      showToast(err.message, 'warning');
+    } finally {
+      setIsSyncingQr(false);
+    }
+  };
 
   const loadItems = async () => {
     setLoading(true); setError('');
@@ -86,7 +128,10 @@ function Dashboard() {
     }
   };
 
-  useEffect(() => { loadItems(); }, []);
+  useEffect(() => { 
+    loadItems(); 
+    loadNetworkInfo();
+  }, []);
 
   useEffect(() => {
     if (items.length > 0) {
@@ -167,11 +212,14 @@ function Dashboard() {
 
   const handleLoadScannedItem = async () => {
     if (!scannedItemId) return;
-    if (scannedItem && scannedItem._id === scannedItemId) { showToast('Item already loaded', 'info'); return; }
+    const match = scannedItemId.match(/\/item\/([a-fA-F0-9]{24})/i) || scannedItemId.match(/[a-fA-F0-9]{24}/);
+    const targetId = match ? (match[1] || match[0]) : scannedItemId.trim();
+    if (scannedItem && scannedItem._id === targetId) { showToast('Item already loaded', 'info'); return; }
     setError('');
     try {
-      const item = await apiRequest(`/items/${scannedItemId}`);
+      const item = await apiRequest(`/items/${targetId}`);
       setScannedItem(item);
+      setScannedItemId(targetId);
       setQuantityInput(item.quantity.toString());
     } catch (err) {
       setScannedItem(null); setQuantityInput(''); setError(err.message);
@@ -218,6 +266,27 @@ function Dashboard() {
           </Button>
         </div>
       </div>
+
+      {/* Network Info & Hotspot Banner */}
+      {networkInfo && (
+        <div className="p-4 bg-gradient-to-r from-brand-50 to-emerald-50 dark:from-brand-950/40 dark:to-emerald-950/30 border border-brand-200 dark:border-brand-900/40 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs animate-fade-in shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
+            <span className="text-slate-600 dark:text-slate-300">
+              Mobile Scan Network: <strong className="text-slate-900 dark:text-white font-mono bg-white/70 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">{networkInfo.frontendUrl}</strong>
+            </span>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={handleSyncQrCodes} 
+            isLoading={isSyncingQr}
+            className="text-brand-600 dark:text-brand-400 font-bold hover:bg-white/80 dark:hover:bg-slate-800/80 w-full sm:w-auto"
+          >
+            <RefreshCw size={14} /> Update QR Codes to this Network
+          </Button>
+        </div>
+      )}
 
       {/* Alerts */}
       {error && (
@@ -326,13 +395,14 @@ function Dashboard() {
                     </td>
                     <td className="p-4">
                       <div className="flex flex-col items-center justify-center gap-3">
-                        {item.qrCode ? (
-                          <div className="bg-white p-1.5 rounded-xl shadow-sm border border-slate-200 flex-shrink-0">
-                            <img src={item.qrCode} alt="QR Code" className="w-24 h-24 object-contain" />
-                          </div>
-                        ) : (
-                          <div className="w-28 h-28 flex items-center justify-center text-slate-300 bg-slate-100 rounded-xl"><Package size={32}/></div>
-                        )}
+                        <div className="bg-white p-1.5 rounded-xl shadow-sm border border-slate-200 flex-shrink-0">
+                          <ItemQRCode 
+                            itemId={item._id} 
+                            fallback={item.qrCode} 
+                            baseUrl={networkInfo?.frontendUrl} 
+                            className="w-24 h-24 object-contain" 
+                          />
+                        </div>
                         <div className="flex flex-col items-center gap-1">
                           <code 
                             className="text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 w-[110px] text-center truncate cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors select-all shadow-sm"
@@ -345,6 +415,14 @@ function Dashboard() {
                             {item._id}
                           </code>
                           <span className="text-[9px] text-slate-400 font-medium">Click to copy</span>
+                          <Link 
+                            to={`/item/${item._id}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-[10px] font-bold text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1 mt-0.5"
+                          >
+                            Live Page &rarr;
+                          </Link>
                         </div>
                       </div>
                     </td>

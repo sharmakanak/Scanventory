@@ -7,7 +7,7 @@ import { Input } from '../components/ui/Input';
 import { Card, CardHeader } from '../components/ui/Card';
 
 function Signup() {
-  const [formData, setFormData] = useState({ username: '', email: '', password: '' });
+  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
@@ -21,11 +21,16 @@ function Signup() {
       const res = await fetch(`${API_BASE}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          name: formData.name,
+          username: formData.name,
+          email: formData.email,
+          password: formData.password
+        })
       });
       const data = await res.json();
       
-      if (!res.ok) throw new Error(data.error || 'Registration failed');
+      if (!res.ok) throw new Error(data.message || data.error || 'Registration failed');
 
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
@@ -55,12 +60,12 @@ function Signup() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <Input
-              label="Username"
+              label="Full Name"
               type="text"
               icon={User}
-              placeholder="inventory_master"
-              value={formData.username}
-              onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+              placeholder="John Doe"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               required
             />
 

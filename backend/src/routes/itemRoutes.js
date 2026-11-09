@@ -2,18 +2,51 @@
 // Includes full CRUD, stock quantity updates, and activity logging
 
 const express = require('express');
+const os = require('os');
 const QRCode = require('qrcode');
 const Item = require('../models/Item');
 const ActivityLog = require('../models/ActivityLog');
 const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
-router.use(authMiddleware);
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+function getActiveLocalIp() {
+    const nets = os.networkInterfaces();
+    for (const name of Object.keys(nets)) {
+        for (const net of nets[name]) {
+            if (net.family === 'IPv4' && !net.internal && !net.address.startsWith('169.254')) {
+                return net.address;
+            }
+        }
+    }
+    return '127.0.0.1';
+}
 
-async function generateQrForItemId(itemId) {
-    return QRCode.toDataURL(String(itemId));
+function getBaseFrontendUrl(req) {
+    if (process.env.FRONTEND_URL && !process.env.FRONTEND_URL.includes('localhost') && !process.env.FRONTEND_URL.includes('127.0.0.1')) {
+        return process.env.FRONTEND_URL.replace(/\/$/, '');
+    }
+    const origin = req?.headers?.origin || req?.headers?.referer;
+    if (origin) {
+        try {
+            const u = new URL(origin);
+            if (u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') {
+                return `${u.protocol}//${u.host}`;
+            }
+        } catch {}
+    }
+    const localIp = getActiveLocalIp();
+    return `http://${localIp}:5173`;
+}
+
+async function generateQrForItemId(itemId, req) {
+    const baseUrl = getBaseFrontendUrl(req);
+    const itemUrl = `${baseUrl}/item/${itemId}`;
+    return QRCode.toDataURL(itemUrl, {
+        errorCorrectionLevel: 'M',
+        margin: 2,
+        width: 300,
+    });
 }
 
 function validateItemBody(body) {
@@ -38,7 +71,51 @@ async function logActivity(userId, itemId, itemName, action, delta = null, quant
     }
 }
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
+// ─── Public Routes (Accessible by any device scanning QR) ────────────────────
+
+// GET /api/items/public/:id — Public view of single item
+router.get('/public/:id', async (req, res) => {
+    try {
+        const item = await Item.findById(req.params.id)
+            .select('itemName category quantity location description sku unitPrice qrCode updatedAt createdAt');
+        if (!item) {
+            return res.status(404).json({ message: 'Item not found.' });
+        }
+        return res.json(item);
+    } catch (err) {
+        console.error('Error fetching public item:', err.message);
+        return res.status(500).json({ message: 'Server error while fetching item.' });
+    }
+});
+
+// GET /api/items/network-info — Public active network information
+router.get('/network-info', (req, res) => {
+    try {
+        const localIp = getActiveLocalIp();
+        const frontendUrl = getBaseFrontendUrl(req);
+        return res.json({ localIp, frontendUrl });
+    } catch (err) {
+        return res.status(500).json({ message: 'Error retrieving network info' });
+    }
+});
+
+// ─── Protected Routes (Require Authentication) ───────────────────────────────
+router.use(authMiddleware);
+
+// POST /api/items/regenerate-all-qr — Regenerate QR codes to full URL format
+router.post('/regenerate-all-qr', async (req, res) => {
+    try {
+        const items = await Item.find({ userId: req.userId });
+        for (const it of items) {
+            it.qrCode = await generateQrForItemId(it._id, req);
+            await it.save();
+        }
+        return res.json({ message: `Successfully updated ${items.length} QR codes to scanable URLs.` });
+    } catch (err) {
+        console.error('Error regenerating QR codes:', err.message);
+        return res.status(500).json({ message: 'Server error while regenerating QR codes.' });
+    }
+});
 
 // POST /api/items — Create item
 router.post('/', async (req, res) => {
@@ -60,7 +137,7 @@ router.post('/', async (req, res) => {
         });
 
         const savedItem = await item.save();
-        savedItem.qrCode = await generateQrForItemId(savedItem._id);
+        savedItem.qrCode = await generateQrForItemId(savedItem._id, req);
         const finalItem = await savedItem.save();
 
         await logActivity(req.userId, finalItem._id, finalItem.itemName, 'created', null, finalItem.quantity);

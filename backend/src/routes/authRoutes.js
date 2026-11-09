@@ -16,10 +16,10 @@ if (!JWT_SECRET) {
     process.exit(1);
 }
 
-// Rate limiter: max 10 auth requests per 15 minutes per IP
+// Rate limiter: max 100 auth requests per 15 minutes per IP
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10,
+    max: 100,
     message: {
         message: 'Too many attempts from this IP. Please try again after 15 minutes.',
     },
@@ -37,7 +37,8 @@ function isValidEmail(email) {
 
 function validateSignupBody(body) {
     const errors = [];
-    const { name, email, password } = body;
+    const name = body.name || body.username;
+    const { email, password } = body;
 
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
         errors.push('Name must be at least 2 characters.');
@@ -73,7 +74,8 @@ router.post('/signup', async (req, res) => {
             return res.status(400).json({ message: errors[0] });
         }
 
-        const { name, email, password } = req.body;
+        const name = (req.body.name || req.body.username || '').trim();
+        const { email, password } = req.body;
 
         // Checking if the user already exists
         const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
@@ -87,7 +89,7 @@ router.post('/signup', async (req, res) => {
 
         // Create new user
         const user = new User({
-            name: name.trim(),
+            name: name,
             email: email.toLowerCase().trim(),
             password: hashedPassword,
         });

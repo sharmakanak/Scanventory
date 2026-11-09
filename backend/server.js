@@ -1,4 +1,3 @@
-// Simple Express server setup with MongoDB connection
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -9,7 +8,7 @@ dotenv.config();
 
 const app = express();
 
-// Basic middleware
+// Middleware
 app.use(cors());
 app.use(express.json());
 
@@ -19,6 +18,7 @@ const authRoutes = require('./src/routes/authRoutes');
 const contactRoutes = require('./src/routes/contactRoutes');
 const profileRoutes = require('./src/routes/profileRoutes');
 
+// API routes
 app.use('/api/items', itemRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/contact', contactRoutes);
@@ -26,23 +26,35 @@ app.use('/api/profile', profileRoutes);
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ message: 'Inventory API is running' });
+    res.json({
+        message: 'Scanventory API is running',
+        status: 'success'
+    });
 });
 
-// MongoDB connection
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/qr_inventory';
+// Environment variables
+const MONGO_URI = process.env.MONGO_URI;
 const PORT = process.env.PORT || 5000;
 
+// Start server
+const startServer = async () => {
+    try {
+        if (!MONGO_URI) {
+            throw new Error('MONGO_URI is missing from environment variables');
+        }
 
-mongoose
-  .connect(MONGO_URI)
-  .then(() => {
-    console.log('Connected to MongoDB');
-    app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
-  })
-  .catch((err) => {
-    console.error('MongoDB connection error:', err.message);
-    process.exit(1);
-  });
+        await mongoose.connect(MONGO_URI);
 
+        console.log('MongoDB Atlas connected successfully');
 
+        app.listen(PORT, () => {
+            console.log(`Scanventory API running on port ${PORT}`);
+        });
+
+    } catch (error) {
+        console.error('Server startup error:', error.message);
+        process.exit(1);
+    }
+};
+
+startServer();
