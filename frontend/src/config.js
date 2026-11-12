@@ -1,9 +1,12 @@
+
 // Shared frontend configuration
-// All magic constants and environment-driven values live here.
 
-// API base URL — uses relative '/api' so Vite proxy handles it seamlessly across all networks & devices
-export const API_BASE = '/api';
+// API base URL
+// Local development: Uses Vite proxy
+// Production: Uses Render backend
+export const API_BASE = `${
+  import.meta.env.VITE_API_BASE_URL || ''
+}/api`;
 
-// Low-stock threshold — items with quantity below this value are flagged as low stock.
-// Update this single constant to change the threshold across the entire app.
+// Low-stock threshold
 export const LOW_STOCK_THRESHOLD = 5;
